@@ -1,0 +1,255 @@
+<!DOCTYPE HTML>
+<html>
+	<head>
+		<style>
+body {
+	overflow: hidden;
+}
+
+canvas#main {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	aspect-ratio: 4/3;
+	image-rendering: pixelated;
+	border: 1px solid black;
+}
+		</style>
+	</head>
+	
+	<body>
+		<main>
+			<canvas id="main">
+		</main>
+		
+		<script id="main">
+const cnv = document.querySelector("canvas#main");
+const ctx = cnv.getContext("2d");
+
+const resolution = { width : 1920, height : 1080 };
+const aspectRatio = 16 / 9;
+const size = resolution.height / 5;
+
+const boardOffset = { x : resolution.width / 2 - size * 2, y : resolution.height / 2 - size * 2 };
+
+let grid = [
+	[{}, {}, {}, {}],
+	[{}, {}, {}, {}],
+	[{}, {}, {}, {}],
+	[{}, {}, {}, {}]
+];
+
+function main() {
+	cnv.width = resolution.width;
+	cnv.height = resolution.height;
+	
+	addTile();
+	
+	step();
+	setInterval(step, 100);
+}
+
+function step() {
+	ctx.fillStyle = "rgb(200 200 200)";
+	ctx.fillRect(0, 0, cnv.width, cnv.height);
+	
+	ctx.strokeStyle = "rgb(250 250 250)";
+	ctx.lineWidth = 10;
+	ctx.strokeRect(boardOffset.x, boardOffset.y, size * 4, size * 4);
+	ctx.strokeStyle = "rgb(170 170 170)";
+	ctx.fillStyle = "rgb(150 150 150)";
+	ctx.lineWidth = 4;
+	for (let x = 0; x < 4; x++) {
+		for (let y = 0; y < 4; y++) {
+			ctx.fillRect(x * size + boardOffset.x, y * size + boardOffset.y, size, size);
+			ctx.strokeRect(x * size + boardOffset.x, y * size + boardOffset.y, size, size);
+		}
+	}
+	
+	
+	for (let x = 0; x < 4; x++) {
+		for (let y = 0; y < 4; y++) {
+			grid[y][x] instanceof Tile && grid[y][x].show();
+		}
+	}
+}
+
+function slide(direction) {
+	let change = false;
+	if (direction == "N" || direction == "S") {
+		for (let x = 0; x < 4; x++) {
+			let colItems = [];
+			let initialCol = [];
+
+			for (let y = 0; y < 4; y++) {
+				grid[y][x] instanceof Tile && colItems.push(grid[y][x]);
+				grid[y][x] instanceof Tile && initialCol.push(grid[y][x]);
+			}
+
+			colItems = colItems.filter(item => {return item instanceof Tile;});
+
+			if (direction == "S") {
+				colItems.reverse();
+			}
+			for (let i = 0; i < colItems.length - 1; i++) {
+				try {
+					if (colItems[i].value == colItems[i + 1].value) {
+						colItems.splice(i + 1, 1);
+						colItems[i].value *= 2;
+						i--;
+					}
+				} catch (e) {}
+			}
+			while (colItems.length < 4) {
+				colItems.push({});
+			}
+			if (direction == "S") {
+				colItems.reverse();
+			}
+
+			if (colItems.length == 4) {
+				for (let y = 0; y < 4; y++) {
+					grid[y][x] = colItems[y];
+					if (grid[y][x] instanceof Tile) {
+						grid[y][x].y = y;
+					}
+				}
+			}
+
+			if (!change) {
+				for (let y = 0; y < 4; y++) {
+					if (colItems[y] != initialCol[y]) {
+						change = true;
+						break;
+					}
+				}
+			}
+		}
+	} else if (direction == "E" || direction == "W") {
+		for (let y = 0; y < 4; y++) {
+			let rowItems = [...grid[y]];
+			let initialRow = [...grid[y]];
+
+			rowItems = rowItems.filter(item => {return item instanceof Tile;});
+
+			if (direction == "E") {
+				rowItems.reverse();
+			}
+			for (let i = 0; i < rowItems.length - 1; i++) {
+				try {
+					if (rowItems[i].value == rowItems[i + 1].value) {
+						rowItems.splice(i + 1, 1);
+						rowItems[i].value *= 2;
+						i--;
+					}
+				} catch (e) {}
+			}
+			while (rowItems.length < 4) {
+				rowItems.push({});
+			}
+			if (direction == "E") {
+				rowItems.reverse();
+			}
+
+			if (rowItems.length == 4) {
+				for (let x = 0; x < 4; x++) {
+					grid[y][x] = rowItems[x];
+					if (grid[y][x] instanceof Tile) {
+						grid[y][x].x = x;
+					}
+				}
+			}
+
+			if (!change) {
+				for (let x = 0; x < 4; x++) {
+					if (rowItems[x] != initialRow[x]) {
+						change = true;
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	return change;
+}
+
+function addTile() {
+	const open = [];
+	
+	for (let x = 0; x < 4; x++) {
+		for (let y = 0; y < 4; y++) {
+			if (!(grid[y][x] instanceof Tile)) {
+				open.push([x, y]);
+			}
+		}
+	}
+
+	if (open.length > 0) {
+		const square = open[Math.floor(Math.random() * open.length)];
+		if (square) {
+			const [x, y] = square;
+
+			new Tile(x, y, Math.round(Math.random() + 1) * 2);
+		}
+	}
+}
+
+function key(e) {
+	if (e.keyCode == 38) { // Up Arrow
+		if (slide("N")) {
+			addTile();
+		}
+	} else if (e.keyCode == 40) { // Up Arrow
+		if (slide("S")) {
+			addTile();
+		}
+	} else if (e.keyCode == 39) { // Up Arrow
+		if (slide("E")) {
+			addTile();
+		}
+	} else if (e.keyCode == 37) { // Up Arrow
+		if (slide("W")) {
+			addTile();
+		}
+	}
+}
+document.addEventListener("keydown", key);
+
+
+class Tile {
+	constructor(x, y, value) {
+		this.value = value;
+		this.x = x;
+		this.y = y;
+		
+		// debug.textContent = `${this.x}, ${this.y}`;
+		grid[this.y][this.x] = this;
+	}
+	
+	show() {
+		ctx.fillStyle = "rgb(200 200 200)";
+		ctx.font = `${size / 2}px system-ui`;
+		ctx.textAlign = "center";
+		ctx.fillText(
+			this.value,
+			boardOffset.x + this.x * size + size / 2,
+			boardOffset.y + this.y * size + size * (2 / 3)
+		);
+	}
+}
+
+
+function resizeCanvas() {
+	const width = Math.min(window.innerWidth, window.innerHeight * aspectRatio);
+	cnv.style.width = "" + width + "px";
+	cnv.style.height = "" + width * aspectRatio**-1 + "px";
+}
+window.onresize = resizeCanvas;
+resizeCanvas();
+
+main();
+		</script>
+	</body>
+</html>

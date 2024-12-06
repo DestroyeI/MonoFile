@@ -1,0 +1,1292 @@
+<!DOCTYPE HTML>
+<html>
+    <head>
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♟</text></svg>">
+        <title>Chess</title>
+        <style>
+body {
+	overflow: hidden;
+}
+
+canvas#main {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	aspect-ratio: 4/3;
+	image-rendering: pixelated;
+	border: 1px solid black;
+    z-index: -1;
+}
+
+p#debug {
+    position: absolute;
+    top: 0;
+    left: 0;
+    color: black;
+    z-index: 2;
+}
+
+div.promote {
+    z-index: 1;
+    background-color: grey;
+    position: absolute;
+    border: 5px solid white;
+    width: 20px;
+    height: 20px;
+}
+
+button.promotion {
+    border: 1px solid white;
+    background: none;
+}
+button.promotion.active {
+    background: lightgrey;
+}
+
+p.pieces {
+    position: absolute;
+}
+        </style>
+    </head>
+    <body>
+        <main>
+            <canvas id="main"></canvas>
+            <p id="debug"></p>
+            <div class="promote" id="W"></div>
+            <div class="promote" id="B"></div>
+            <p class="pieces" id="W"></p>
+            <p class="pieces" id="B"></p>
+        </main>
+		<script id="Quadtree">
+            function position(obj) {
+                return obj;
+            }
+            
+            
+            class Rect {
+              constructor(x, y, w, h) {
+                this.x = x;
+                this.y = y;
+                this.w = w;
+                this.h = h;
+              }
+              
+              accommodate(pt) {
+                if (this.contains(pt)) {
+                  return;
+                }
+                
+                this.w = Math.max(Math.abs(pt.x - this.x), this.w);
+                this.h = Math.max(Math.abs(pt.y - this.y), this.h);
+              }
+              
+              contains(pt) {
+                return !(pt.x < this.x - this.w ||
+                  pt.x > this.x + this.w ||
+                  pt.y < this.y - this.h ||
+                  pt.y > this.y + this.h);
+              }
+              
+              intersects(range) {
+                return !(range.x - range.w > this.x + this.w ||
+                  range.x + range.w < this.x - this.w ||
+                  range.y - range.h > this.y + this.h ||
+                  range.y + range.h < this.y - this.h);
+                  
+              }
+            }
+            
+            class Quadtree {
+              constructor(bounds, capacity=4, objs=[]) {
+                this.bounds = bounds;
+                this.initBounds = JSON.parse(JSON.stringify(bounds));
+                this.capacity = capacity;
+                this.objs = [];
+                this.subdivided = false;
+                
+                objs.forEach(obj => {
+                  this.insert(obj);
+                });
+              }
+              
+              forceInsert(obj, checkForExisting=true) {
+                if (obj instanceof Array) {
+                  obj.forEach(item => {
+                    this.forceInsert(item, checkForExisting);
+                  });
+
+                  return;
+                }
+                
+                this.accommodate(position(obj));
+                this.insert(obj, checkForExisting);
+              }
+              
+              insert(obj, checkForExisting=true) {
+                if (obj instanceof Array) {
+                  obj.forEach(item => {
+                    this.insert(item);
+                  });
+                  
+                  return;
+                }
+                
+                if (!this.bounds.contains(position(obj))) {
+                  return;
+                }
+                
+                if (checkForExisting && this.atPos(obj).length > 0) {
+                  return;
+                }
+                
+                if (this.objs.length < this.capacity) {
+                  this.objs.push(obj);
+                  return true;
+                } else {
+                  if (!this.subdivided) {
+                    this.subdivide();
+                  }
+                  
+                  if (this.nw.insert(obj)) {
+                    return true;
+                  } else if (this.ne.insert(obj)) {
+                    return true;
+                  } else if (this.sw.insert(obj)) {
+                    return true;
+                  } else if (this.se.insert(obj)) {
+                    return true;
+                  }
+                }
+                
+                return false;
+              }
+              
+              accommodate(pt) {
+                if (this.bounds.contains(pt)) {
+                  return;
+                }
+                
+                  
+                this.bounds.accommodate(pt);
+            //     let objs = this.getAll();
+            //     objs.push(pt);
+                  
+            //     const farL = this.bounds.x - this.bounds.w;
+            //     const farR = this.bounds.x + this.bounds.w;
+            //     const farU = this.bounds.y - this.bounds.h;
+            //     const farD = this.bounds.y + this.bounds.h;
+            //     objs.push({x: farL, y: farU});
+            //     objs.push({x: farR, y: farD});
+                
+            //     const Xs = objs.map(obj => obj.x);
+            //     const lX = min(...Xs);
+            //     const hX = max(...Xs);
+                  
+            //     const Ys = objs.map(obj => obj.y);
+            //     const lY = min(...Ys);
+            //     const hY = max(...Ys);
+                  
+            //     this.bounds.x = lX + (hX - lX) / 2;
+            //     this.bounds.y = lY + (hY - lY) / 2;
+                
+            //     this.bounds.w = this.bounds.x - lX;
+            //     this.bounds.h = this.bounds.y - lY;
+                
+                let objs = this.getAll();
+                this.clear();
+                this.insert(objs);
+              }
+              
+              clear() {
+                this.objs = [];
+                
+                if (this.subdivided) {
+                  this.subdivided = false;
+                  
+                  this.nw.clear();
+                  this.ne.clear();
+                  this.sw.clear();
+                  this.se.clear();
+                  
+                  this.nw = undefined;
+                  this.ne = undefined;
+                  this.sw = undefined;
+                  this.se = undefined;
+                }
+              }
+              
+              remove(obj) {
+                if (this.objs.includes(obj)) {
+                  this.objs.splice(this.objs.indexOf(obj), 1);
+                } else if (this.subdivided) {
+                  this.nw.remove(obj);
+                  this.ne.remove(obj);
+                  this.sw.remove(obj);
+                  this.se.remove(obj);
+                }
+              }
+              
+              query(range, found=[]) {
+                if (!this.bounds.intersects(range)) {
+                  return found;
+                }
+                
+                this.objs.forEach(obj => {
+                  if (range.contains(position(obj))) {
+                    found.push(obj);
+                  }
+                });
+                
+                if (this.subdivided) {
+                  this.nw.query(range, found);
+                  this.ne.query(range, found);
+                  this.sw.query(range, found);
+                  this.se.query(range, found);
+                }
+                
+                return found;
+              }
+              
+              atPos(pos) {
+                if (!this.bounds.contains(pos)) {
+                  return;
+                }
+                
+                let obj = this.query(new Rect(pos.x, pos.y, 0.01, 0.01))[0];
+                if (obj) {
+                  return obj;
+                } else if (this.subdivided) {
+                  let nwObj = this.nw.atPos(pos);
+                  if (nwObj) {
+                    return nwObj;
+                  }
+                  
+                  let neObj = this.ne.atPos(pos);
+                  if (neObj) {
+                    return neObj;
+                  }
+                  
+                  let swObj = this.sw.atPos(pos);
+                  if (swObj) {
+                    return swObj;
+                  }
+                  
+                  let seObj = this.se.atPos(pos);
+                  if (seObj) {
+                    return seObj;
+                  }
+                }
+                
+                return false;
+              }
+              
+              getAll() {
+                let objs = [...this.objs];
+                
+                if (this.subdivided) {
+                  objs.push(...this.nw.getAll());
+                  objs.push(...this.ne.getAll());
+                  objs.push(...this.sw.getAll());
+                  objs.push(...this.se.getAll());
+                }
+                
+                return objs;
+              }
+              
+              subdivide() {
+                let x = this.bounds.x;
+                let y = this.bounds.y;
+                let w = this.bounds.w;
+                let h = this.bounds.h;
+                
+                this.nw = new Quadtree(new Rect(x - w / 2, y - h / 2, w / 2, h / 2), this.capacity);
+                this.ne = new Quadtree(new Rect(x + w / 2, y - h / 2, w / 2, h / 2), this.capacity);
+                this.sw = new Quadtree(new Rect(x - w / 2, y + h / 2, w / 2, h / 2), this.capacity);
+                this.se = new Quadtree(new Rect(x + w / 2, y + h / 2, w / 2, h / 2), this.capacity);
+                
+                this.subdivided = true;
+              }
+
+              show(dx=0, dy=0, scl=1, color="rgb(0 255 0)") {
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 10;
+                ctx.strokeRect(dx + (this.bounds.x - this.bounds.w) * scl, dy + (this.bounds.y - this.bounds.h) * scl, this.bounds.w * 2 * scl, this.bounds.h * 2 * scl);
+
+                if (this.subdivided) {
+                    this.ne.show(dx, dy, scl, color);
+                    this.nw.show(dx, dy, scl, color);
+                    this.se.show(dx, dy, scl, color);
+                    this.sw.show(dx, dy, scl, color);
+                }
+              }
+
+              reload() {
+                const objs = this.getAll();
+                this.clear();
+                this.bounds = new Rect(this.initBounds.x, this.initBounds.y, this.initBounds.w, this.initBounds.h);
+                this.forceInsert(objs);
+              }
+            }
+        </script>
+        <script id="pieces">
+function fromOutsideBMP(cp) {
+  var x=cp-0x10000;
+  var top10=parseInt("11111111110000000000",2);
+  var end10=parseInt("1111111111",2);
+  var part1=(x&top10)/1024+0xD800;
+  var part2=(x&end10)+0xDC00;
+  var s=String.fromCharCode(part1)+String.fromCharCode(part2);
+  return s;
+}
+
+const teams = [ "W", "B" ];
+const pieces = {
+    "R" : {
+        "id" : [ "\u2656", "\u265C" ],
+        "moves" : [
+            {
+                "dx" : 1,
+                "dy" : 0,
+                "repeat" : 100
+            },
+            {
+                "dx" : -1,
+                "dy" : 0,
+                "repeat" : 100
+            },
+            {
+                "dx" : 0,
+                "dy" : 1,
+                "repeat" : 100
+            },
+            {
+                "dx" : 0,
+                "dy" : -1,
+                "repeat" : 100
+            }
+        ]
+    },
+    "B" : {
+        "id" : [ "\u2657", "\u265D" ],
+        "moves" : [
+            {
+                "dx" : 1,
+                "dy" : 1,
+                "repeat" : 100
+            },
+            {
+                "dx" : -1,
+                "dy" : 1,
+                "repeat" : 100
+            },
+            {
+                "dx" : -1,
+                "dy" : -1,
+                "repeat" : 100
+            },
+            {
+                "dx" : 1,
+                "dy" : -1,
+                "repeat" : 100
+            }
+        ]
+    },
+    "N" : {
+        "id" : [ "\u2658", "\u265E" ],
+        "moves" : [
+            {
+                "dx" : 2,
+                "dy" : 1
+            },
+            {
+                "dx" : 2,
+                "dy" : -1
+            },
+            {
+                "dx" : -2,
+                "dy" : 1
+            },
+            {
+                "dx" : -2,
+                "dy" : -1
+            },
+            {
+                "dx" : 1,
+                "dy" : 2
+            },
+            {
+                "dx" : -1,
+                "dy" : 2
+            },
+            {
+                "dx" : 1,
+                "dy" : -2
+            },
+            {
+                "dx" : -1,
+                "dy" : -2
+            }
+        ]
+    },
+    "Q" : {
+        "id" : [ "\u2655", "\u265B" ],
+        "moves" : [
+            {
+                "dx" : 1,
+                "dy" : 0,
+                "repeat" : 100
+            },
+            {
+                "dx" : -1,
+                "dy" : 0,
+                "repeat" : 100
+            },
+            {
+                "dx" : 0,
+                "dy" : 1,
+                "repeat" : 100
+            },
+            {
+                "dx" : 0,
+                "dy" : -1,
+                "repeat" : 100
+            },
+            {
+                "dx" : 1,
+                "dy" : 1,
+                "repeat" : 100
+            },
+            {
+                "dx" : -1,
+                "dy" : 1,
+                "repeat" : 100
+            },
+            {
+                "dx" : -1,
+                "dy" : -1,
+                "repeat" : 100
+            },
+            {
+                "dx" : 1,
+                "dy" : -1,
+                "repeat" : 100
+            }
+        ]
+    },
+    "K" : {
+        "id" : [ "\u2654", "\u265A" ],
+        "moves" : [
+            {
+                "dx" : 1,
+                "dy" : 0
+            },
+            {
+                "dx" : -1,
+                "dy" : 0
+            },
+            {
+                "dx" : 0,
+                "dy" : 1
+            },
+            {
+                "dx" : 0,
+                "dy" : -1
+            },
+            {
+                "dx" : 1,
+                "dy" : 1
+            },
+            {
+                "dx" : -1,
+                "dy" : 1
+            },
+            {
+                "dx" : -1,
+                "dy" : -1
+            },
+            {
+                "dx" : 1,
+                "dy" : -1
+            },
+            {
+                "dx" : -2,
+                "dy" : 0,
+                "first" : true,
+                "swap" : {
+                    "id" : "R",
+                    "x" : -1,
+                    "y" : 0,
+                    "dx" : 2,
+                    "dy" : 0,
+                    "first" : true,
+                    "need" : true
+                }
+            },
+            {
+                "dx" : 3,
+                "dy" : 0,
+                "first" : true,
+                "clearPath" : true,
+                "swap" : {
+                    "id" : "R",
+                    "x" : 1,
+                    "y" : 0,
+                    "dx" : -2,
+                    "dy" : 0,
+                    "first" : true,
+                    "need" : true
+                }
+            }
+        ]
+    },
+    "P" : {
+        "id" : [ "\u2659", "\u265F" ],
+        "moves" : [
+            {
+                "dx" : 0,
+                "dy" : -1,
+                "captureOnly" : false
+            },
+            {
+                "dx" : 0,
+                "dy" : -1,
+                "repeat" : 2,
+                "first" : true,
+                "captureOnly" : false,
+                "flags" : [ "double" ]
+            },
+            {
+                "dx" : 1,
+                "dy" : -1,
+                "captureOnly" : true,
+                "captureOffs" : [
+                    {
+                        "x" : 0,
+                        "y" : 0
+                    },
+                    {
+                        "x" : 0,
+                        "y" : 1,
+                        "captureFlags" : [ "double" ]
+                    }
+                ]
+            },
+            {
+                "dx" : -1,
+                "dy" : -1,
+                "captureOnly" : true,
+                "captureOffs" : [
+                    {
+                        "x" : 0,
+                        "y" : 0
+                    },
+                    {
+                        "x" : 0,
+                        "y" : 1,
+                        "captureFlags" : [ "double" ]
+                    }
+                ]
+            }
+        ],
+        "promote" : [
+            "R", "B", "N", "Q"
+        ]
+    }
+}
+        </script>
+        <script id="main">
+const cnv = document.querySelector( "canvas#main" );
+const ctx = cnv.getContext( "2d" );
+const debug = document.querySelector( "p#debug" );
+const promotion = {
+    "W" : document.querySelector( "div.promote#W" ),
+    "B" : document.querySelector( "div.promote#B" )
+};
+const promotionPositions = {
+    "B" : {
+        "x" : 230,
+        "y" : 540
+    },
+    "W" : {
+        "x" : 1690,
+        "y" : 540
+    }
+}
+
+const resolution = { width : 1920, height : 1080 };
+const aspectRatio = 16 / 9;
+
+const board = {
+    x : 460, y : 40,
+    w : 1000, h : 1000
+};
+
+const colorblind = true;
+const dim = 8;
+const size = board.w / dim;
+const fontSize = size * ( 5 / 6 );
+
+const pieceSize = size / 2;
+const piecesPosition = {
+    "W" : {
+        "x" : 1575,
+        "y" : 540
+    },
+    "B" : {
+        "x" : 345,
+        "y" : 540
+    }
+}
+
+const promotePieceSize = size;
+const tally = {
+    "W" : {
+        "captured" : [  ],
+        "remaining" : [  ]
+    },
+    "B" : {
+        "captured" : [  ],
+        "remaining" : [  ]
+    }
+};
+
+const win = "K";
+let turn = "W";
+const aiColor = "B";
+let ai = true;
+const bottomTeam = "W";
+const layout = [
+    [ "R", "N", "B", "K", "Q", "B", "N", "R" ],
+    [ "P", "P", "P", "P", "P", "P", "P", "P" ]
+];
+const allPieces = [  ];
+layout.forEach( row => { allPieces.push( ...row.filter( p => { return p != " "; } ) ); } );
+
+const pieceValues = {
+    "P" : 1,
+    "N" : 3,
+    "B" : 3,
+    "R" : 5,
+    "Q" : 9,
+    "K" : 100
+};
+
+const white = new Quadtree( new Rect( dim / 2, dim / 2, dim / 2, dim / 2 ) );
+const black = new Quadtree( new Rect( dim / 2, dim / 2, dim / 2, dim / 2 ) );
+let active;
+
+
+function main(  ) {
+    cnv.width = resolution.width;
+    cnv.height = resolution.height;
+
+
+    if ( ai ) {
+        ai = new AI( aiColor );
+    }
+
+
+    ctx.fillStyle = "rgb(200 200 200)";
+    ctx.fillRect( 0, 0, resolution.width, resolution.height );
+
+    ctx.strokeStyle = "rgb(100 100 100)";
+    ctx.lineWidth = 10;
+    ctx.strokeRect( board.x - 5, board.y - 5, board.w + 10, board.h + 10 );
+
+    
+    layout.forEach( ( r, y ) => {
+        r.forEach( ( p, x ) => {
+            if ( p == " " ) {
+                return;
+            }
+
+            white.forceInsert( new Piece( x, bottomTeam == "W" ? dim - y - 1 : y, p, "W" ) );
+            black.forceInsert( new Piece( x, bottomTeam == "B" ? dim - y - 1 : y, p, "B" ) );
+            tally.W.remaining.push( p );
+            tally.B.remaining.push( p );
+        } );
+    } );
+
+    Object.keys( pieces ).forEach( key => {
+        const buttonW = document.createElement( "button" );
+        buttonW.id = key;
+        buttonW.textContent = pieces[ key ].id[ teams.indexOf( "W" ) ];
+        buttonW.classList.add( "promotion" );
+        buttonW.classList.add( "W" );
+        buttonW.style.width = `${ fromCanv( promotePieceSize ) }px`;
+        buttonW.style.height = `${ fromCanv( promotePieceSize ) }px`;
+        buttonW.style.fontSize = `${ fromCanv( promotePieceSize ) * ( 2 / 3 ) }px`;
+        promotion.W.appendChild( buttonW );
+        
+        const buttonB = document.createElement( "button" );
+        buttonB.id = key;
+        buttonB.textContent = pieces[ key ].id[ teams.indexOf( "B" ) ];
+        buttonB.classList.add( "promotion" );
+        buttonB.classList.add( "B" );
+        buttonB.style.width = `${ fromCanv( promotePieceSize ) }px`;
+        buttonB.style.height = `${ fromCanv( promotePieceSize ) }px`;
+        buttonB.style.fontSize = `${ fromCanv( promotePieceSize ) * ( 2 / 3 ) }px`;
+        promotion.B.appendChild( buttonB );
+    } );
+
+    teams.forEach( team => {
+        const p = document.querySelector( `p.pieces#${ team }` );
+        p.style.textAlign = "center";
+        p.innerHTML = allPieces.map( p => { return pieces[ p ].id[ teams.indexOf( team ) ]; } ).join( "\n" );
+    } );
+
+
+    step(  );
+    setInterval( step, 10 );
+
+    if ( turn == ai.color ) {
+        setTimeout( (  ) => {
+            ai.turn(  );
+        }, 10 );
+    }
+}
+
+function step(  ) {
+    drawBoard(  );
+
+    [ ...white.getAll(  ), ...black.getAll(  ) ].forEach( p => { p.show(  ); } );
+    active && active.getMoves(  );
+
+    teams.forEach( team => {
+        tally[ team ].remaining = ( team == "W" ? white : black ).getAll(  ).map( p => { return p.id; } );
+        let captured = [ ...tally[ team ].captured ];
+        let all = [ ...tally[ team ].remaining, ...tally[ team ].captured ].sort(  );
+        const pTally = document.querySelector( `p.pieces#${ team }` );
+        pTally.innerHTML = all.map( p => {
+            let id = pieces[ p ].id[ teams.indexOf( team ) ];
+            if ( captured.includes( p ) ) {
+                id = `<span style="color: red">${ id }</span>`;
+                captured.splice( captured.indexOf( p ), 1 );
+            }
+
+            return id;
+        } ).join( "\n" );
+    } );
+}
+
+function drawBoard(  ) {
+    for ( let i = 0; i < dim; i++ ) {
+        for ( let j = 0; j < dim; j++ ) {
+            ctx.fillStyle = "rgb(255 255 255)";
+            if ( ( i % 2 == 0 ) != ( j % 2 == 0 ) ) {
+                ctx.fillStyle = "rgb(0 0 0)";
+            }
+
+            ctx.fillRect( board.x + i * size, board.y + j * size, size, size );
+        }
+    }
+}
+
+function inRange( v, l, h ) {
+    return v >= l && v <= h;
+}
+
+function occupied( x, y, wqt=white, bqt=black ) {
+    const wq = wqt.query( new Rect( x, y, 0.1, 0.1 ) );
+    const bq = bqt.query( new Rect( x, y, 0.1, 0.1 ) );
+
+    return ( wq.length > 0 || bq.length > 0 ) ? ( wq > bq ? "W" : "B" ) : undefined;
+}
+
+function capture( x, y, color, wqt=white, bqt=black, sim=false ) {
+    const qt = color == "W" ? wqt : bqt;
+    const query = qt.query( new Rect( x, y, 0.1, 0.1 ) );
+    if ( query.length == 0 ) {
+        return [ wqt, bqt, (  ) => {  } ];
+    }
+
+    const piece = query[ 0 ];
+    let game = (  ) => {  };
+    let gameWon = false;
+    let tly = (  ) => {  };
+
+    qt.remove( piece );
+    tly = (  ) => {
+        tally[ color ].captured.push( piece.id );
+    }
+
+    if ( piece.id == win ) {
+        gameWon = true;
+        if ( sim ) { game = (  ) => { gameOver( opponent( color ) ); } }
+        if ( !sim ) { gameOver( opponent( color ) ); }
+    }
+
+    return [ wqt, bqt, gameWon, (  ) => { game(  ); tly(  ); } ];
+}
+
+function gameOver( winner ) {
+    turn = "GAMEOVER";
+}
+
+function opponent( color ) {
+    return color == "W" ? "B" : "W";
+}
+
+function captures( x, y, move, color, wqt=white, bqt=black ) {
+    let capt = 0;
+
+    ( move.captureOffs || [ { "x" : 0, "y" : 0 } ] ).forEach( off => {
+        const q = ( color == "W" ? bqt : wqt ).query( new Rect( x + off.x, y + off.y, 0.1, 0.1 ) );
+
+        if ( q.length > 0 ) {
+            const p = q[ 0 ];
+            if ( p.color == opponent( color ) && ( off.captureFlags == undefined || off.captureFlags.every( flag => { return p.flags.includes( flag ); } ) ) ) {
+                capt++;
+            }
+        }
+    } );
+
+    return capt > 0;
+}
+
+function queryAll( x, y, qt1=white, qt2=black ) {
+    if ( x instanceof Rect ) {
+        const w = qt1.query( x );
+        const b = qt2.query( x );
+        return [ ...w, ...b ];
+    }
+
+    const rect = new Rect( x, y, 0.1, 0.1 )
+    const w = qt1.query( rect );
+    const b = qt2.query( rect );
+    return [ ...w, ...b ];
+}
+
+function findPiece( x, y, id, color, data={  } ) {
+    const q = queryAll( x, y ).filter( p => { return p.id == id && p.color == color && ( !data.first || p.turn == 0 ); } );
+    
+    if ( q.length > 0 ) {
+        return q[ 0 ];
+    }
+}
+
+function isClear( sx, sy, fx, fy, modifier=0 ) {
+    const x = sx + ( fx - sx ) / 2;
+    const y = sy + ( fy - sy ) / 2;
+
+    const rect = new Rect( x, y, ( fx - sx ) / 2 + 0.1, ( fy - sy ) / 2 + 0.1 );
+    const q = queryAll( rect );
+
+    return q.length + modifier <= 0;
+}
+
+function deepCopyQT( qt ) {
+    return new Quadtree( new Rect( qt.bounds.x, qt.bounds.y, qt.bounds.w, qt.bounds.h ), qt.capacity, qt.getAll(  ).map( p => { return new Piece( p.x, p.y, p.id, p.color, p.turn, p.flags, p.won ); } ) );
+}
+
+function runBoard( piece, move, mqt, oqt, sim=false, autoPromote=false ) {
+    let nmqt = deepCopyQT( mqt );
+    let noqt = deepCopyQT( oqt );
+    const resolves = [  ];
+    const query = nmqt.query( new Rect( piece.x, piece.y, 0.1, 0.1 ) );
+    if ( query.length == 0 ) {
+        return [ nmqt, noqt, turn == "PROMOTE" ];
+    }
+    const nPiece = query[ 0 ];
+
+    ( move.move.captureOffs || [ { x : 0, y : 0 } ] ).forEach( off => {
+        const p = oqt.query( new Rect( move.x + off.x, move.y + off.y, 0.1, 0.1 ) )[ 0 ];
+        const occup = occupied( move.x + off.x, move.y + off.y, nPiece.color == "W" ? nmqt : noqt, nPiece.color == "W" ? noqt : nmqt );
+        if ( p && occup == p.color && ( off.captureFlags == undefined || off.captureFlags.every( flag => { return p.flags.includes( flag ); } ) ) ) {
+            let [ nwqt, nbqt, gameWon, resolve ] = capture( move.x + off.x, move.y + off.y, p.color, nPiece.color == "W" ? nmqt : noqt, nPiece.color == "W" ? noqt : nmqt, true );
+            if ( gameWon ) {
+                nPiece.won = true;
+            }
+
+            resolves.push( resolve );
+            nmqt = nPiece.color == "W" ? nwqt : nbqt;
+            noqt = nPiece.color == "W" ? nbqt : nwqt;
+        }
+    } );
+
+    nmqt.getAll(  ).forEach( p => { p.flags = [  ]; } );
+    nPiece.flags = [ ...( nPiece.flags || [  ] ), ...( move.move.flags || [  ] ) ];
+    nPiece.x = move.x;
+    nPiece.y = move.y;
+    if ( nPiece.data.promote && nPiece.y == ( nPiece.color == "W" ? 0 : 7 ) ) {
+        if ( autoPromote ) {
+            nPiece.promoteTo( autoPromote );
+        } else {
+            !sim && nPiece.promote(  );
+            turn = "PROMOTE";
+        }
+    }
+
+    if ( move.move.swap ) {
+        const q = queryAll( nPiece.x + move.move.swap.x, nPiece.y + move.move.swap.y, nmqt, noqt ).filter( p => { return p.id == move.move.swap.id; } );
+
+        if ( q.length > 0 ) {
+            const p = q[ 0 ];
+            p.x += move.move.swap.dx;
+            p.y += move.move.swap.dy;
+        }
+    }
+
+    nPiece.turn++;
+    nmqt.reload(  );
+    noqt.reload(  );
+
+    return [ nmqt, noqt, turn == "PROMOTE", (  ) => { resolves.forEach( r => { r(  ); } ); } ];
+}
+
+
+class Piece {
+    constructor( x, y, id, color, turn=0, flags=[  ], won=false ) {
+        this.x = x;
+        this.y = y;
+        this.id = id;
+        this.color = color;
+        this.data = JSON.parse( JSON.stringify( pieces[ this.id ] ) );
+        this.validMoves = [  ];
+        this.flags = flags;
+
+        this.turn = turn;
+        this.won = won;
+
+        if ( this.color != bottomTeam ) {
+            this.data.moves.forEach( m => {
+                m.dy *= -1;
+                if ( m.captureOffs ) {
+                    m.captureOffs.forEach( off => { off.y *= -1; } );
+                }
+            } );
+        }
+    }
+
+    promote(  ) {
+        this.data.promote.forEach( p => {
+            const button = document.querySelector( `button.promotion.${ this.color }#${ p }` );
+            button.classList.add( "active" );
+            button.onclick = (  ) => {
+                this.promoteTo( p );
+                turn = opponent( this.color );
+                
+                document.querySelectorAll( `button.promotion.${ this.color }.active` ).forEach( b => {
+                    b.classList.remove( "active" );
+                } );
+
+                if ( ai && ai.color == turn ) {
+                    setTimeout( (  ) => {
+                        ai.turn(  );
+                    }, 10 );
+                }
+            }
+        } );
+    }
+
+    promoteTo( id ) {
+        this.id = id;
+        this.data = JSON.parse( JSON.stringify( pieces[ this.id ] ) );
+    }
+
+    show(  ) {
+        ctx.lineWidth = 7;
+        const v = this.color == "W" ? 1 : 0;
+        ctx.fillStyle = `rgb(${ v * 255 } ${ v * 255 } ${ v * 255 })`;
+        ctx.strokeStyle = `rgb(${ ( 1 - v ) * 255 } ${ ( 1 - v ) * 255 } ${ ( 1 - v ) * 255 })`;
+        if ( colorblind ) {
+            ctx.strokeStyle = `rgb(${ ( 1 - v ) * 255 } ${ 0 } ${ v * 255 })`;
+        }
+        if ( this.won ) { ctx.strokeStyle = "rgb(0 255 0)"; }
+        ctx.font = `${ fontSize }px system-ui`;
+        ctx.textAlign = "center";
+        ctx.strokeText( this.data.id instanceof Array ? this.data.id[ teams.indexOf( this.color ) ] : this.data.id, board.x + this.x * size + size / 2, board.y + this.y * size + fontSize );
+        ctx.fillText( this.data.id instanceof Array ? this.data.id[ teams.indexOf( this.color ) ] : this.data.id, board.x + this.x * size + size / 2, board.y + this.y * size + fontSize );
+    }
+
+    getMoves( show=true ) {
+        const drawMove = m => {
+            ctx.globalAlpha = 0.8;
+            ctx.fillStyle = "rgb(125 125 125)";
+            ctx.beginPath(  );
+            ctx.arc( board.x + ( this.x + m.dx + 0.5 ) * size, board.y + ( this.y + m.dy + 0.5 ) * size, size / 4, 0, Math.PI * 2 );
+            ctx.fill(  );
+            ctx.globalAlpha = 1;
+        }
+
+        this.validMoves = [  ];
+
+        this.data.moves.forEach( move => {
+            if ( move.repeat > 1 ) {
+                for ( let i = 0; i < move.repeat; i++) {
+                    const dx = move.dx + move.dx * i;
+                    const dy = move.dy + move.dy * i;
+                    
+                    if ( inRange( this.x + dx, 0, dim - 1 ) && inRange( this.y + dy, 0, dim - 1 ) ) {
+                        if ( occupied( this.x + dx, this.y + dy ) == this.color ) {
+                            break;
+                        }
+
+                        if ( ( move.first && this.turn == 0 ) || ( !move.first ) ) {
+                            if ( move.captureOnly && !captures( this.x + dx, this.y + dy, move, this.color ) ) {
+                                if ( occupied( this.x + dx, this.y + dy ) == opponent( this.color ) ) {
+                                    break;
+                                }
+                                continue;
+                            } else if ( move.captureOnly === false && captures( this.x + dx, this.y + dy, move, this.color ) ) {
+                                if ( occupied( this.x + dx, this.y + dy ) == opponent( this.color ) ) {
+                                    break;
+                                }
+                                continue;
+                            }
+
+                            show && drawMove( { ...move, dx, dy } );
+                            this.validMoves.push( { x : this.x + dx, y : this.y + dy, move : move } );
+                        }
+
+                        if ( occupied( this.x + dx, this.y + dy ) == opponent( this.color ) ) {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                if ( inRange( this.x + move.dx, 0, dim - 1 ) && inRange( this.y + move.dy, 0, dim - 1 ) ) {
+                    if ( ( move.first && this.turn == 0 ) || ( !move.first ) ) {
+                        if ( occupied( this.x + move.dx, this.y + move.dy ) != this.color ) {
+                            if ( !( move.captureOnly && !captures( this.x + move.dx, this.y + move.dy, move, this.color ) ) &&
+                                !( move.captureOnly === false && captures( this.x + move.dx, this.y + move.dy, move, this.color ) ) ) {
+                                if ( !move.swap || !move.swap.need || ( findPiece( this.x + move.dx + move.swap.x, this.y + move.dy + move.swap.y, move.swap.id, this.color, move.swap ) && occupied( this.x + move.dx + move.swap.x + move.swap.dx, this.y + move.dy + move.swap.y + move.swap.dy ) == undefined ) ) {
+                                    if ( !move.clearPath || isClear( this.x, this.y, this.x + move.dx, this.y + move.dy, -1 ) ) {
+                                        show && drawMove( move );
+                                        this.validMoves.push( { x : this.x + move.dx, y : this.y + move.dy, move : move } );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } );
+
+        return this.validMoves;
+    }
+}
+
+class AI {
+    constructor( color ) {
+        this.color = color;
+        this.maxDepth = 1;
+    }
+
+    turn(  ) {
+        if ( turn == "GAMEOVER" ) {
+            return;
+        }
+
+        let mqt, oqt; // my quadtree, opponent quadtree
+        if ( this.color == "W" ) {
+            mqt = new Quadtree( new Rect( white.bounds.x, white.bounds.y, white.bounds.w, white.bounds.h ), white.capacity, white.getAll(  ).map( p => { return new Piece( p.x, p.y, p.id, p.color, p.turn, p.flags, p.won ); } ) );
+            oqt = new Quadtree( new Rect( black.bounds.x, black.bounds.y, black.bounds.w, black.bounds.h ), black.capacity, black.getAll(  ).map( p => { return new Piece( p.x, p.y, p.id, p.color, p.turn, p.flags, p.won ); } ) );
+        } else {
+            oqt = new Quadtree( new Rect( white.bounds.x, white.bounds.y, white.bounds.w, white.bounds.h ), white.capacity, white.getAll(  ).map( p => { return new Piece( p.x, p.y, p.id, p.color, p.turn, p.flags, p.won ); } ) );
+            mqt = new Quadtree( new Rect( black.bounds.x, black.bounds.y, black.bounds.w, black.bounds.h ), black.capacity, black.getAll(  ).map( p => { return new Piece( p.x, p.y, p.id, p.color, p.turn, p.flags, p.won ); } ) );
+        }
+
+        const move = this.mm( mqt, oqt, 0 );
+        move.resolve(  );
+
+        this.loadTrees( move.nmqt, move.noqt );
+    }
+
+    loadTrees( mqt, oqt ) {
+        let wqt, bqt;
+
+        if ( this.color == "W" ) {
+            wqt = mqt;
+            bqt = oqt;
+        } else {
+            wqt = oqt;
+            bqt = mqt;
+        }
+
+
+        white.clear(  );
+        black.clear(  );
+
+        white.insert( wqt.getAll(  ).map( p => { return new Piece( p.x, p.y, p.id, p.color, p.turn, p.flags, p.won ); } ) );
+        black.insert( bqt.getAll(  ).map( p => { return new Piece( p.x, p.y, p.id, p.color, p.turn, p.flags, p.won ); } ) );
+
+
+        if ( turn != "GAMEOVER" ) { turn = opponent( this.color ); }
+    }
+
+    // resolve( piece, move, mqt, oqt ) {
+    //     const noqt = new Quadtree( new Rect( oqt.bounds.x, oqt.bounds.y, oqt.bounds.w, oqt.bounds.h ), oqt.capacity, oqt.getAll(  ).map( p => { return new Piece( p.x, p.y, p.id, p.color, p.turn, p.flags ); } ) );
+    //     const nmqt = new Quadtree( new Rect( mqt.bounds.x, mqt.bounds.y, mqt.bounds.w, mqt.bounds.h ), mqt.capacity, mqt.getAll(  ).map( p => { return new Piece( p.x, p.y, p.id, p.color, p.turn, p.flags ); } ) );
+
+    //     const nPiece = nmqt.query( new Rect( piece.x, piece.y, 0.1, 0.1 ) )[ 0 ];
+        
+    //     nPiece.x = move.x;
+    //     nPiece.y = move.y;
+
+    //     ( move.captureOffs || [ { "x" : 0, "y" : 0 } ] ).forEach( off => {
+    //         const query = noqt.query( new Rect( move.x + off.x, move.y + off.y, 0.1, 0.1 ) );
+    //         if ( query.length > 0 ) {
+    //             const piece = query[ 0 ];
+    //             noqt.remove( piece );
+    //         }
+    //     } );
+
+    //     nmqt.reload(  );
+    //     noqt.reload(  );
+
+    //     return [ nmqt, noqt ];
+    // }
+
+    mm( mqt, oqt, depth ) {
+        const moves = [  ];
+        const moveable = mqt.getAll(  );
+        moveable.forEach( piece => {
+            const pieceMoves = [ ...piece.getMoves( false ) ];
+            pieceMoves.forEach( move => {
+                let score = this.score( piece, move, mqt, oqt );
+                let [ nmqt, noqt, promote, resolve ] = runBoard( piece, move, mqt, oqt, true );
+
+                if ( promote && piece.data.promote ) {
+                    piece.data.promote.forEach( pID => {
+                        score += pieceValues[ pID ];
+
+                        let [ nnmqt, nnoqt, _, promResolve ] = runBoard( piece, move, mqt, oqt, true, pID );
+
+                        if ( depth < this.maxDepth ) {
+                            let oMove = this.mm( oqt, mqt, this.maxDepth );
+                            let secondMove = this.mm( oMove.noqt, oMove.nmqt, depth + 1 );
+                            score += secondMove.score - oMove.score;
+                        }
+
+                        moves.push( {
+                            move, promote, pID, "resolve" : promResolve, piece, depth,
+                            mqt, oqt, "nmqt" : nnmqt, "noqt" : nnoqt, score
+                        } );
+                    } );
+                } else {
+                    if ( depth < this.maxDepth ) {
+                        let oMove = this.mm( oqt, mqt, this.maxDepth );
+                        let secondMove = this.mm( oMove.noqt, oMove.nmqt, depth + 1 );
+                        score += secondMove.score - oMove.score;
+                    }
+
+                    moves.push( {
+                        move, promote, resolve, piece, depth,
+                        mqt, oqt, nmqt, noqt, score
+                    } );
+                }
+            } );
+        } );
+
+        const sorted = moves.sort( ( a, b ) => { return b.score - a.score; } );
+        const highest = moves.filter( m => { return m.score == sorted[ 0 ].score; } );
+        return highest[ Math.floor( Math.random(  ) * highest.length ) ];
+    }
+
+    score( piece, move, mqt, oqt ) {
+        let overall = 0;
+
+        ( move.captureOffs || [ { "x" : 0, "y" : 0 } ] ).forEach( off => {
+            const x = move.x + off.x;
+            const y = move.y + off.y;
+            const query = oqt.query( new Rect( x, y, 0.1, 0.1 ) );
+
+            if ( query.length > 0 ) {
+                const oppPiece = query[ 0 ];
+                overall += pieceValues[ oppPiece.id ];
+            }
+        } );
+
+        return overall;
+    }
+}
+
+
+function toCanv( x ) {
+    return x * ( resolution.width / cnv.clientWidth );
+}
+
+function fromCanv( x ) {
+    return toCanv( x**-1 )**-1;
+}
+
+window.onclick = e => {
+    if ( turn == "PROMOTE" || turn == "GAMEOVER" || ( ai && turn == ai.color ) ) {
+        return;
+    }
+
+    const x = Math.floor( ( toCanv( e.offsetX - cnv.clientLeft ) - board.x ) / size );
+    const y = Math.floor( ( toCanv( e.offsetY - cnv.clientTop ) - board.y ) / size );
+    const query = turn == "W" ? white.query( new Rect( x, y, 0.1, 0.1 ) ) : black.query( new Rect( x, y, 0.1, 0.1 ) );
+    const q = turn == "W" ? white : black;
+
+    if ( query.length > 0 ) {
+        active = query[ 0 ];
+    } else {
+        const moves = active.validMoves.filter( m => { return `${ m.x }-${ m.y }` == `${ x }-${ y }`; } );
+        if ( moves.length > 0 ) {
+            const move = moves[ 0 ];
+            
+            let [ mqt, oqt, _, resolve ] = runBoard( active, move, active.color == "W" ? white : black, active.color == "W" ? black : white );
+            resolve(  );
+            let wqt = active.color == "W" ? mqt : oqt;
+            let bqt = active.color == "W" ? oqt : mqt;
+            white.clear(  );
+            black.clear(  );
+            white.insert( wqt.getAll(  ) );
+            black.insert( bqt.getAll(  ) );
+
+            if ( turn != "PROMOTE" && turn != "GAMEOVER" ) { turn = opponent( turn ); }
+
+            if ( ai && ai.color == turn ) {
+                setTimeout( (  ) => {
+                    ai.turn(  );
+                }, 10 );
+            }
+        }
+        active = undefined;
+    }
+}
+
+function resizeCanvas(  ) {
+	const width = Math.min( window.innerWidth, window.innerHeight * aspectRatio );
+	cnv.style.width = "" + width + "px";
+	cnv.style.height = "" + width * aspectRatio**-1 + "px";
+
+    Object.keys( promotion ).forEach( key => {
+        const div = promotion[ key ];
+        const pos = promotionPositions[ key ];
+
+        const cnvRect = cnv.getBoundingClientRect(  );
+        const height = fromCanv( promotePieceSize ) * Object.keys( pieces ).length;
+        div.style.top = `${ cnvRect.top + fromCanv( pos.y ) - height / 2 }px`;
+        div.style.left = `${ cnvRect.left + fromCanv( pos.x ) - fromCanv( promotePieceSize ) / 2 }px`;
+        div.style.width = `${ fromCanv( promotePieceSize ) }px`;
+        div.style.height = `${ fromCanv( promotePieceSize ) * Object.keys( pieces ).length }px`;
+    } );
+
+    document.querySelectorAll( "button.promotion" ).forEach( b => {
+        b.style.width = `${ fromCanv( promotePieceSize ) }px`;
+        b.style.height = `${ fromCanv( promotePieceSize ) }px`;
+    } );
+
+    document.querySelectorAll( "p.pieces" ).forEach( p => {
+        const cnvRect = cnv.getBoundingClientRect(  );
+        p.style.width = `${ fromCanv( pieceSize ) }px`;
+        p.style.height = `${ fromCanv( pieceSize ) * allPieces.length }px`;
+        p.style.top = `${ cnvRect.top + fromCanv( piecesPosition[ p.id ].y ) - fromCanv( pieceSize ) * allPieces.length / 2 }px`;
+        p.style.left = `${ cnvRect.left + fromCanv( piecesPosition[ p.id ].x ) - fromCanv( pieceSize ) / 2 }px`;
+        p.style.fontSize = `${ fromCanv( pieceSize ) * ( 2 / 3 ) }px`;
+    } );
+}
+window.onresize = resizeCanvas;
+resizeCanvas(  );
+
+main(  );
+        </script>
+    </body>
+</html>

@@ -1,0 +1,1175 @@
+<!DOCTYPE HTML>
+<html>
+	<head>
+		<style>
+body {
+	overflow: hidden;
+}
+
+canvas#main {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	aspect-ratio: 4/3;
+	image-rendering: pixelated;
+	border: 1px solid black;
+}
+
+p#DEBUG {
+    position: absolute;
+    top: 0;
+    left: 0;
+    color: black;
+    z-index: 1;
+}
+		</style>
+	</head>
+	<body>
+		<main>
+            <p id="DEBUG">DEBUG</p>
+			<canvas id="main">
+		</main>
+		<script id="Quadtree">
+function position(obj) {
+	return obj.position;
+}
+
+
+class Rect {
+  constructor(x, y, w, h) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+  }
+  
+  accommodate(pt) {
+    if (this.contains(pt)) {
+      return;
+    }
+    
+    this.w = Math.max(Math.abs(pt.x - this.x), this.w);
+    this.h = Math.max(Math.abs(pt.y - this.y), this.h);
+  }
+  
+  contains(pt) {
+    return !(pt.x < this.x - this.w ||
+      pt.x > this.x + this.w ||
+      pt.y < this.y - this.h ||
+      pt.y > this.y + this.h);
+  }
+  
+  intersects(range) {
+    return !(range.x - range.w > this.x + this.w ||
+      range.x + range.w < this.x - this.w ||
+      range.y - range.h > this.y + this.h ||
+      range.y + range.h < this.y - this.h);
+      
+  }
+}
+
+class Quadtree {
+  constructor(bounds, capacity=4, objs=[]) {
+    this.bounds = bounds;
+    this.capacity = capacity;
+    this.objs = [];
+    this.subdivided = false;
+    
+    objs.forEach(obj => {
+      this.insert(obj);
+    });
+  }
+  
+  forceInsert(obj, checkForExisting=true) {
+    if (obj instanceof Array) {
+      obj.forEach(item => {
+        this.forceInsert(item, checkForExisting);
+      });
+    }
+    
+    this.accommodate(position(obj));
+    this.insert(obj, checkForExisting);
+  }
+  
+  insert(obj, checkForExisting=true) {
+    if (!this.bounds.contains(position(obj))) {
+      return;
+    }
+    
+    if (obj instanceof Array) {
+      obj.forEach(item => {
+        this.insert(item);
+      });
+      
+      return;
+    }
+    
+    if (checkForExisting && this.atPos(obj).length > 0) {
+      return;
+    }
+    
+    if (this.objs.length < this.capacity) {
+      this.objs.push(obj);
+      return true;
+    } else {
+      if (!this.subdivided) {
+        this.subdivide();
+      }
+      
+      if (this.nw.insert(obj)) {
+        return true;
+      } else if (this.ne.insert(obj)) {
+        return true;
+      } else if (this.sw.insert(obj)) {
+        return true;
+      } else if (this.se.insert(obj)) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+  
+  accommodate(pt) {
+    if (this.bounds.contains(pt)) {
+      return;
+    }
+    
+      
+    this.bounds.accommodate(pt)
+//     let objs = this.getAll();
+//     objs.push(pt);
+      
+//     const farL = this.bounds.x - this.bounds.w;
+//     const farR = this.bounds.x + this.bounds.w;
+//     const farU = this.bounds.y - this.bounds.h;
+//     const farD = this.bounds.y + this.bounds.h;
+//     objs.push({x: farL, y: farU});
+//     objs.push({x: farR, y: farD});
+    
+//     const Xs = objs.map(obj => obj.x);
+//     const lX = min(...Xs);
+//     const hX = max(...Xs);
+      
+//     const Ys = objs.map(obj => obj.y);
+//     const lY = min(...Ys);
+//     const hY = max(...Ys);
+      
+//     this.bounds.x = lX + (hX - lX) / 2;
+//     this.bounds.y = lY + (hY - lY) / 2;
+    
+//     this.bounds.w = this.bounds.x - lX;
+//     this.bounds.h = this.bounds.y - lY;
+    
+    let objs = this.getAll();
+    this.clear();
+    this.insert(objs);
+  }
+  
+  clear() {
+    this.objs = [];
+    
+    if (this.subdivided) {
+      this.subdivided = false;
+      
+      this.nw.clear();
+      this.ne.clear();
+      this.sw.clear();
+      this.se.clear();
+      
+      this.nw = undefined;
+      this.ne = undefined;
+      this.sw = undefined;
+      this.se = undefined;
+    }
+  }
+  
+  remove(obj) {
+    if (this.objs.includes(obj)) {
+      this.objs.splice(this.objs.indexOf(obj), 1);
+    } else if (this.subdivided) {
+      this.nw.remove(obj);
+      this.ne.remove(obj);
+      this.sw.remove(obj);
+      this.se.remove(obj);
+    }
+  }
+  
+  query(range, found=[]) {
+    if (!this.bounds.intersects(range)) {
+      return found;
+    }
+    
+    this.objs.forEach(obj => {
+      if (range.contains(position(obj))) {
+        found.push(obj);
+      }
+    });
+    
+    if (this.subdivided) {
+      this.nw.query(range, found);
+      this.ne.query(range, found);
+      this.sw.query(range, found);
+      this.se.query(range, found);
+    }
+    
+    return found;
+  }
+  
+  atPos(pos) {
+    if (!this.bounds.contains(pos)) {
+      return;
+    }
+    
+    let obj = this.query(new Rect(pos.x, pos.y, 0.01, 0.01))[0];
+    if (obj) {
+      return obj;
+    } else if (this.subdivided) {
+      let nwObj = this.nw.atPos(pos);
+      if (nwObj) {
+        return nwObj;
+      }
+      
+      let neObj = this.ne.atPos(pos);
+      if (neObj) {
+        return neObj;
+      }
+      
+      let swObj = this.sw.atPos(pos);
+      if (swObj) {
+        return swObj;
+      }
+      
+      let seObj = this.se.atPos(pos);
+      if (seObj) {
+        return seObj;
+      }
+    }
+    
+    return false;
+  }
+  
+  getAll() {
+    let objs = [...this.objs];
+    
+    if (this.subdivided) {
+      objs.push(...this.nw.getAll());
+      objs.push(...this.ne.getAll());
+      objs.push(...this.sw.getAll());
+      objs.push(...this.se.getAll());
+    }
+    
+    return objs;
+  }
+  
+  subdivide() {
+    let x = this.bounds.x;
+    let y = this.bounds.y;
+    let w = this.bounds.w;
+    let h = this.bounds.h;
+    
+    this.nw = new Quadtree(new Rect(x - w / 2, y - h / 2, w / 2, h / 2), this.capacity);
+    this.ne = new Quadtree(new Rect(x + w / 2, y - h / 2, w / 2, h / 2), this.capacity);
+    this.sw = new Quadtree(new Rect(x - w / 2, y + h / 2, w / 2, h / 2), this.capacity);
+    this.se = new Quadtree(new Rect(x + w / 2, y + h / 2, w / 2, h / 2), this.capacity);
+    
+    this.subdivided = true;
+  }
+}
+		</script>
+        <script id="shapes">
+const shapes = [
+    {
+        "id" : "O",
+        "color" : [1, 1, 0],
+        "blocks" : [
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1, -1 ],
+                [  0, -1 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1, -1 ],
+                [  0, -1 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1, -1 ],
+                [  0, -1 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1, -1 ],
+                [  0, -1 ]
+            ]
+        ],
+        "kicks" : [
+            [
+                [  0,  0 ]
+            ],
+            [
+                [  0,  0 ]
+            ],
+            [
+                [  0,  0 ]
+            ],
+            [
+                [  0,  0 ]
+            ]
+        ]
+    },
+    {
+        "id" : "I",
+        "color" : [0, 0, 1],
+        "blocks" : [
+            [
+                [ -1,  0 ],
+                [  0,  0 ],
+                [  1,  0 ],
+                [  2,  0 ]
+            ],
+            [
+                [  0,  1 ],
+                [  0,  0 ],
+                [  0, -1 ],
+                [  0, -2 ]
+            ],
+            [
+                [ -1, -1 ],
+                [  0, -1 ],
+                [  1, -1 ],
+                [  2, -1 ]
+            ],
+            [
+                [  1,  1 ],
+                [  1,  0 ],
+                [  1, -1 ],
+                [  1, -2 ]
+            ]
+        ],
+        "kicks" : [
+            [
+                [  0,  0 ],
+                [ -2,  0 ],
+                [  1,  0 ],
+                [ -2, -1 ],
+                [  1,  2 ]
+            ],
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [  2,  0 ],
+                [ -1,  2 ],
+                [  2, -1 ]
+            ],
+            [
+                [  0,  0 ],
+                [  2,  0 ],
+                [ -1,  0 ],
+                [  2,  1 ],
+                [ -1, -2 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [ -2,  0 ],
+                [  1, -2 ],
+                [ -2,  1 ]
+            ]
+        ]
+    },
+    {
+        "id" : "T",
+        "color" : [1, 0, 1],
+        "blocks" : [
+            [
+                [ -1,  0 ],
+                [  0,  0 ],
+                [  0, -1 ],
+                [  1,  0 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  0,  1 ],
+                [  0, -1 ]
+            ],
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [  0,  1 ],
+                [  1,  0 ]
+            ],
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [  0,  1 ],
+                [  0, -1 ]
+            ]
+        ],
+        "kicks" : [
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [ -1,  1 ],
+                [  0, -2 ],
+                [ -1, -2 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1, -1 ],
+                [  0,  2 ],
+                [  1,  2 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1,  1 ],
+                [  0, -2 ],
+                [  1, -2 ]
+            ],
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [ -1, -1 ],
+                [  0,  2 ],
+                [ -1,  2 ]
+            ]
+        ]
+    },
+    {
+        "id" : "J",
+        "color" : [0, 1, 1],
+        "blocks" : [
+            [
+                [ -1, -1 ],
+                [ -1,  0 ],
+                [  0,  0 ],
+                [  1,  0 ]
+            ],
+            [
+                [  1, -1 ],
+                [  0, -1 ],
+                [  0,  0 ],
+                [  0,  1 ]
+            ],
+            [
+                [ -1,  0 ],
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1,  1 ]
+            ],
+            [
+                [  0, -1 ],
+                [  0,  0 ],
+                [  0,  1 ],
+                [ -1,  1 ]
+            ]
+        ],
+        "kicks" : [
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [ -1,  1 ],
+                [  0, -2 ],
+                [ -1, -2 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1, -1 ],
+                [  0,  2 ],
+                [  1,  2 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1,  1 ],
+                [  0, -2 ],
+                [  1, -2 ]
+            ],
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [ -1, -1 ],
+                [  0,  2 ],
+                [ -1,  2 ]
+            ]
+        ]
+    },
+    {
+        "id" : "L",
+        "color" : [1, 1, 1],
+        "blocks" : [
+            [
+                [ -1,  0 ],
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1, -1 ]
+            ],
+            [
+                [  0, -1 ],
+                [  0,  0 ],
+                [  0,  1 ],
+                [  1,  1 ]
+            ],
+            [
+                [ -1,  1 ],
+                [ -1,  0 ],
+                [  0,  0 ],
+                [  1,  0 ]
+            ],
+            [
+                [ -1, -1 ],
+                [  0, -1 ],
+                [  0,  0 ],
+                [  0,  1 ]
+            ]
+        ],
+        "kicks" : [
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [ -1,  1 ],
+                [  0, -2 ],
+                [ -1, -2 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1, -1 ],
+                [  0,  2 ],
+                [  1,  2 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1,  1 ],
+                [  0, -2 ],
+                [  1, -2 ]
+            ],
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [ -1, -1 ],
+                [  0,  2 ],
+                [ -1,  2 ]
+            ]
+        ]
+    },
+    {
+        "id" : "S",
+        "color" : [0, 1, 0],
+        "blocks" : [
+            [
+                [ -1,  0 ],
+                [  0,  0 ],
+                [  0, -1 ],
+                [  1, -1 ]
+            ],
+            [
+                [  0, -1 ],
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1,  1 ]
+            ],
+            [
+                [  1,  0 ],
+                [  0,  0 ],
+                [  0,  1 ],
+                [ -1,  1 ]
+            ],
+            [
+                [  0,  1 ],
+                [  0,  0 ],
+                [ -1,  0 ],
+                [ -1, -1 ]
+            ]
+        ],
+        "kicks" : [
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [ -1,  1 ],
+                [  0, -2 ],
+                [ -1, -2 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1, -1 ],
+                [  0,  2 ],
+                [  1,  2 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1,  1 ],
+                [  0, -2 ],
+                [  1, -2 ]
+            ],
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [ -1, -1 ],
+                [  0,  2 ],
+                [ -1,  2 ]
+            ]
+        ]
+    },
+    {
+        "id" : "Z",
+        "color" : [1, 0, 0],
+        "blocks" : [
+            [
+                [ -1, -1 ],
+                [  0, -1 ],
+                [  0,  0 ],
+                [  1,  0 ]
+            ],
+            [
+                [  1, -1 ],
+                [  1,  0 ],
+                [  0,  0 ],
+                [  0,  1 ]
+            ],
+            [
+                [  1,  1 ],
+                [  0,  1 ],
+                [  0,  0 ],
+                [ -1,  0 ]
+            ],
+            [
+                [ -1,  1 ],
+                [ -1,  0 ],
+                [  0,  0 ],
+                [  0, -1 ]
+            ]
+        ],
+        "kicks" : [
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [ -1,  1 ],
+                [  0, -2 ],
+                [ -1, -2 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1, -1 ],
+                [  0,  2 ],
+                [  1,  2 ]
+            ],
+            [
+                [  0,  0 ],
+                [  1,  0 ],
+                [  1,  1 ],
+                [  0, -2 ],
+                [  1, -2 ]
+            ],
+            [
+                [  0,  0 ],
+                [ -1,  0 ],
+                [ -1, -1 ],
+                [  0,  2 ],
+                [ -1,  2 ]
+            ]
+        ]
+    }
+]
+        </script>
+		<script id="main">
+const cnv = document.querySelector( "canvas#main" );
+const ctx = cnv.getContext( "2d" );
+const debug = document.querySelector( "p#DEBUG" );
+
+const resolution = { width : 1920, height : 1080 };
+const aspectRatio = 16 / 9;
+
+const board = {
+    x : 710, y : 40,
+    w : 500, h : 1000
+}
+const preview = {
+    x : 1250, y : 40,
+    w : 300, h : 300,
+    sx : 2, sy : 3
+}
+const store = {
+    x : 360, y : 40,
+    w : 300, h : 300,
+    sx : 2, sy : 2
+}
+const scorePos = {
+    x : 1260, y : 500
+}
+const cellsDim = { w : 10, h : 20 };
+const start = { x : 5, y : -0.2 };
+
+
+
+const bits = 1;
+const cells = [  ];
+const colors = [  ];
+for ( let i = 0; i < Math.ceil( ( cellsDim.w * cellsDim.h ) / bits ); i++ ) {
+    cells.push( 0 );
+    colors.push( 0 );colors.push( 0 );colors.push( 0 );
+}
+
+let tetromino = undefined;
+let nextTetromino = undefined;
+let storedPiece = undefined;
+let defaultSpeed = 0.02;
+let softDropSpeed = 0.2;
+let speed = defaultSpeed;
+let speedMult = 0.0005;
+let paused = false;
+let tempBag = [ 0, 1, 2, 3, 4, 5, 6 ];
+let bag = [  ];
+
+let score = 0;
+
+const size = board.w / cellsDim.w;
+
+
+function main(  ) {
+	cnv.width = resolution.width;
+	cnv.height = resolution.height;
+
+    ctx.fillStyle = "rgb(200 200 200)";
+    ctx.fillRect( 0, 0, resolution.width, resolution.height );
+
+    ctx.fillStyle = "rgb(100 100 100)";
+    ctx.fillRect( store.x, store.y, store.w, store.h );
+
+    drawScore(  );
+
+    step(  );
+    setInterval( step, 10 );
+}
+
+function step(  ) {
+    if ( paused ) {
+        return;
+    }
+
+
+    ctx.fillStyle = "rgb(100 100 100)";
+    ctx.fillRect( board.x, board.y, board.w, board.h );
+
+    if ( tetromino == undefined ) {
+        nextPiece(  );
+    }
+
+    let str = [];
+    colors.forEach( color => {
+        let clrStr = ( color >>> 0 ).toString( 2 ).split( '' );
+        let baseClrStr = new Array( bits ).fill( "0" );
+
+        for ( let i = 0; i < clrStr.length; i++ ) {
+            baseClrStr[ i ] = clrStr[ i ];
+        }
+
+        str.push(...baseClrStr);
+    } );
+
+    // tetromino.drawGuides(  );
+    tetromino.showGhost(  );
+
+    for ( let x = 0; x < cellsDim.w; x++ ) {
+        for ( let y = 0; y < cellsDim.h; y++ ) {
+            const index = ( x + y * cellsDim.w ) * 3;
+            const r = str[ index + 0 ];
+            const g = str[ index + 1 ];
+            const b = str[ index + 2 ];
+
+            if ( r == 0 && g == 0 && b == 0 ) {
+                continue;
+            } else {
+                ctx.fillStyle = `rgb(${ r * 255 } ${ g * 255 } ${ b * 255 })`;
+                ctx.strokeStyle = `rgb(${ r * 255 * 0.8 } ${ g * 255 * 0.8 } ${ b * 255 * 0.8 })`;
+                ctx.lineWidth = size * 0.2;
+                ctx.fillRect( board.x + x * size, board.y + y * size, size, size );
+                ctx.strokeRect( board.x + ( x + 0.1 ) * size, board.y + ( y + 0.1 ) * size, size * 0.8, size * 0.8 );
+            }
+
+            // if ( getBit( x, y, cellsDim.w, cells ) == "1" ) {
+            //     ctx.fillStyle = "rgb(0 0 0)";
+            //     ctx.fillRect(board.x + x * size, board.y + y * size, size / 2, size / 2)
+            // }
+        }
+    }
+
+
+    tetromino.update(  );
+    tetromino.show(  );
+
+    ctx.fillStyle = "rgb(200 200 200)";
+    ctx.fillRect( board.x, board.y - size * 2, board.w, size * 2 );
+}
+
+function nextPiece(  ) {
+    tetromino = nextTetromino || new Tetromino( nextShape(  ) );
+    tetromino.x = start.x;
+    tetromino.y = start.y;
+    nextTetromino = new Tetromino( nextShape(  ) );
+
+    drawNext(  );
+}
+
+function nextShape(  ) {
+    if ( bag.length == 0 ) {
+        bag = [  ];
+        let temp = [ ...tempBag ];
+        for ( let i = 0; i < tempBag.length; i++ ) {
+            let index = Math.floor( Math.random(  ) * temp.length );
+            bag.push( temp[ index ] );
+            temp.splice( index, 1 );
+        }
+    }
+
+    return shapes[ bag.pop(  ) ];
+}
+
+function storePiece(  ) {
+    if ( paused ) {
+        return;
+    }
+
+
+    let next = storedPiece;
+    storedPiece = new Tetromino( tetromino.shape );
+    tetromino = next;
+
+    if ( tetromino ) {
+        tetromino.x = start.x;
+        tetromino.y = start.y;
+    }
+
+    storedPiece.x = store.sx;
+    storedPiece.y = store.sy;
+
+    drawStored(  );
+}
+
+function randomShape( previous=undefined ) {
+    const pool = shapes.filter( shape => { return previous ? shape.id != previous.id : true; } )
+    return pool[ Math.floor( Math.random(  ) * pool.length ) ];
+}
+
+
+function getBit( x, y, yFactor, map ) {
+	const pos = x + y * yFactor;
+	const numIndex = Math.floor( pos / bits );
+
+    let str = ( map[numIndex] >>> 0 ).toString( 2 );
+    for ( let i = 0; i < bits - str.length; i++ ) {
+        str += "0";
+    }
+	
+	return str.split( '' )[ pos % bits ];
+}
+
+function setBit( x, y, yFactor, bit, map ) {
+	const pos = x + y * yFactor;
+	const numIndex = Math.floor( pos / bits );
+
+	if ( getBit( x, y, yFactor, map ) != bit ) {
+		map[ numIndex ] += 2**( pos % bits ) * ( bit == "0" ? -1 : 1 );
+	}
+}
+
+function blocked( x, y ) {
+    return ( ( x >= cellsDim.w || x < 0 ) || ( y >= cellsDim.h ) ) || ( getBit( x, y, cellsDim.w, cells ) == "1" );
+}
+
+function openShape( x, y, blocks ) {
+    return blocks.every( block => {
+        return !blocked( x + block[ 0 ], y + block[ 1 ] );
+    } );
+}
+
+function scoreRows( rows ) {
+    if ( rows == 0 ) {
+        return;
+    } else if ( rows == 4 ) {
+        score += 12;
+        drawScore(  );
+        return;
+    }
+
+    score += 1 + ( 2 * ( rows - 1 ) );
+    drawScore(  );
+}
+
+function drawScore(  ) {
+    let scoreStr = `${ score }`;
+    let digits = 6;
+    if ( scoreStr.length > digits ) {
+        scoreStr = scoreStr.split( '' ).splice( 0, digits ).join( '' );
+    } else {
+        let missing = digits - scoreStr.length
+        for ( let i = 0; i < missing; i++ ) {
+            scoreStr = "0" + scoreStr;
+        }
+    }
+
+
+    ctx.fillStyle = "rgb(200 200 200)";
+    ctx.fillRect( scorePos.x - 15, scorePos.y + 10, 310, -60 );
+
+    ctx.fillStyle = "rgb(100 100 100)";
+    ctx.font = "50px system-ui";
+    ctx.fillText( scoreStr + " x 100", scorePos.x - 5, scorePos.y );
+}
+
+function drawStored(  ) {
+    ctx.fillStyle = "rgb(100 100 100)";
+    ctx.fillRect( store.x, store.y, store.w, store.h );
+    if ( storedPiece ) {
+        storedPiece.show( store );
+    }
+}
+
+function drawNext(  ) {
+    ctx.fillStyle = "rgb(100 100 100)";
+    ctx.fillRect( preview.x, preview.y, preview.w, preview.h );
+    nextTetromino.show( preview );
+}
+
+function checkClears(  ) {
+    const clears = [  ];
+
+    for ( let y = 0; y < cellsDim.h; y++ ) {
+        let clear = true;
+        
+        for ( let x = 0; x < cellsDim.w; x++ ) {
+            if ( clear && getBit( x, y, cellsDim.w, cells ) == "0" ) {
+                clear = false;
+            }
+        }
+        
+        if ( clear ) {
+            clears.push( y );
+        }
+    }
+
+    scoreRows( clears.length );
+
+    clears.forEach( clear => {
+        for ( let y = clear; y > 0; y-- ) {
+            for ( let x = 0; x < cellsDim.w; x++ ) {
+                setBit( x, y, cellsDim.w, getBit( x, y - 1, cellsDim.w, cells ), cells );
+
+                const clrIndex = ( x + y * cellsDim.w ) * 3;
+                setBit( clrIndex + 0, 0, 1, getBit( clrIndex + 0 - cellsDim.w * 3, 0, 1, colors ), colors );
+                setBit( clrIndex + 1, 0, 1, getBit( clrIndex + 1 - cellsDim.w * 3, 0, 1, colors ), colors );
+                setBit( clrIndex + 2, 0, 1, getBit( clrIndex + 2 - cellsDim.w * 3, 0, 1, colors ), colors );
+            }
+        }
+
+        for ( let x = 0; x < cellsDim.w; x++ ) {
+            setBit( x, 0, 1, "0", cells );
+
+            setBit( x * 3 + 0, 0, 1, "0", colors );
+            setBit( x * 3 + 1, 0, 1, "0", colors );
+            setBit( x * 3 + 2, 0, 1, "0", colors );
+        }
+    } );
+}
+
+function pause(  ) {
+    paused = !paused;
+
+    if ( paused ) {
+        ctx.globalAlpha = 0.4;
+        ctx.fillStyle = "rgb(0 0 0)";
+        ctx.fillRect( 0, 0, resolution.width, resolution.height );
+        ctx.globalAlpha = 1;
+
+        ctx.fillStyle = "rgb(255 255 255)";
+        ctx.font = "100px system-ui";
+        let metric = ctx.measureText( "Paused" );
+        ctx.fillText( "Paused", resolution.width / 2 - metric.width / 2, resolution.height / 2 );
+    } else {
+        ctx.fillStyle = "rgb(200 200 200)";
+        ctx.fillRect( 0, 0, resolution.width, resolution.height );
+
+        drawStored(  );
+        drawNext(  );
+        drawScore(  );
+    }
+}
+
+
+class Tetromino {
+    constructor( shape=shapes[ Math.floor( Math.random(  ) * shapes.length ) ] ) {
+        this.shape = shape;
+
+        this.x = preview.sx;
+        this.y = preview.sy;
+
+        this.r = 0;
+    }
+
+    update(  ) {
+        const dy = speed + score * speedMult;
+        this.y += dy;
+
+        if ( !openShape( this.x, Math.floor( this.y ), this.shape.blocks[ this.r ] ) ) {
+            this.y -= dy;
+            this.place(  );
+        }
+    }
+
+    place(  ) {
+        this.shape.blocks[ this.r ].forEach( block => {
+            setBit( this.x + block[ 0 ], Math.floor( this.y ) + block[ 1 ], cellsDim.w, "1", cells );
+
+            const colorIndex = ( ( this.x + block[ 0 ] ) + ( Math.floor( this.y ) + block[ 1 ] ) * cellsDim.w ) * 3;
+            for ( let c = 0; c < 3; c++ ) {
+                setBit( colorIndex + c, 0, 1, `${ this.shape.color[ c ] }`, colors );
+            }
+        } );
+
+        if ( tetromino == this ) {
+          tetromino = undefined;
+        }
+
+        checkClears(  );
+    }
+
+    rotate( direction ) {
+        if ( paused ) {
+            return;
+        }
+
+
+        const r = ( this.r + direction + 4 ) % 4;
+        const nextShape = this.shape.blocks[ r ];
+        const kickIndex = direction == 1 ? this.r : r;
+
+        for ( let k = 0; k < this.shape.kicks[ kickIndex ].length; k++ ) {
+            const kick = this.shape.kicks[ kickIndex ][ k ];
+            if ( openShape( this.x + kick[ 0 ], Math.floor( this.y ) + kick[ 1 ], nextShape ) ) {
+                this.r = r;
+                break;
+            }
+        }
+    }
+
+    move( direction ) {
+        if ( paused ) {
+            return;
+        }
+
+
+        if ( openShape( this.x + direction, Math.floor( this.y ), this.shape.blocks[ this.r ] ) ) {
+            this.x += direction;
+        }
+    }
+
+    drawGuides( space=board ) {
+        const ordered = this.shape.blocks[ this.r ].sort( ( a, b ) => { return ( a[ 0 ] - b[ 0 ] ); } );
+        const lBlock = this.shape.blocks[ this.r ].filter( block => { return block[ 0 ] == ordered[ 0 ][ 0 ]; } ).sort( ( a, b ) => { return a[ 1 ] - b[ 1 ]; } )[ 0 ];
+        const rBlock = this.shape.blocks[ this.r ].filter( block => { return block[ 0 ] == ordered[ ordered.length - 1][ 0 ]; } )[ 0 ];
+
+        ctx.strokeStyle = "rgb(255 255 255)";
+        ctx.lineWidth = 1;
+        ctx.beginPath(  );
+        ctx.moveTo( space.x + ( this.x + lBlock[ 0 ] ) * size + 1, space.y + ( Math.floor( this.y ) + lBlock[ 1 ] + 1 ) * size );
+        ctx.lineTo( space.x + ( this.x + lBlock[ 0 ] ) * size + 1, space.y + cellsDim.h * size );
+        ctx.moveTo( space.x + ( this.x + rBlock[ 0 ] + 1 ) * size - 1, space.y + ( Math.floor( this.y ) + rBlock[ 1 ] + 1 ) * size );
+        ctx.lineTo( space.x + ( this.x + rBlock[ 0 ] + 1 ) * size - 1, space.y + cellsDim.h * size );
+        ctx.stroke(  );
+    }
+
+    showGhost( space=board ) {
+        let y = Math.floor( this.y );
+        for ( let i = 0; i < cellsDim.h + 2; i++ ) {
+            if ( !openShape( this.x, y + i, this.shape.blocks[ this.r ] ) ) {
+                y += i - 1;
+                break;
+            }
+        }
+
+        ctx.globalAlpha = 0.2;
+        ctx.fillStyle = `rgb(${ this.shape.color[ 0 ] * 255 } ${ this.shape.color[ 1 ] * 255 } ${ this.shape.color[ 2 ] * 255 })`;
+        ctx.strokeStyle = `rgb(${ this.shape.color[ 0 ] * 255 * 0.8 } ${ this.shape.color[ 1 ] * 255 * 0.8 } ${ this.shape.color[ 2 ] * 255 * 0.8 })`;
+        ctx.lineWidth = size * 0.2;
+        this.shape.blocks[ this.r ].forEach( block => {
+            ctx.fillRect( ( this.x + block[ 0 ] ) * size + space.x, ( Math.floor( y ) + block[ 1 ] ) * size + space.y, size, size );
+            ctx.strokeRect( ( this.x + block[ 0 ] + 0.1 ) * size + space.x, ( Math.floor( y ) + block[ 1 ] + 0.1 ) * size + space.y, size * 0.8, size * 0.8 );
+        } );
+
+        ctx.globalAlpha = 1;
+    }
+
+    show( space=board ) {
+        ctx.fillStyle = `rgb(${ this.shape.color[ 0 ] * 255 } ${ this.shape.color[ 1 ] * 255 } ${ this.shape.color[ 2 ] * 255 })`;
+        ctx.strokeStyle = `rgb(${ this.shape.color[ 0 ] * 255 * 0.8 } ${ this.shape.color[ 1 ] * 255 * 0.8 } ${ this.shape.color[ 2 ] * 255 * 0.8 })`;
+        ctx.lineWidth = size * 0.2;
+        this.shape.blocks[ this.r ].forEach( block => {
+            ctx.fillRect( ( this.x + block[ 0 ] ) * size + space.x, ( Math.floor( this.y ) + block[ 1 ] ) * size + space.y, size, size );
+            ctx.strokeRect( ( this.x + block[ 0 ] + 0.1 ) * size + space.x, ( Math.floor( this.y ) + block[ 1 ] + 0.1 ) * size + space.y, size * 0.8, size * 0.8 );
+        } );
+    }
+}
+
+
+function key( e ) {
+    if ( tetromino ) {
+        if ( e.keyCode == 37 ) { // Left
+            tetromino.move( -1 );
+        } else if ( e.keyCode == 39 ) { // Right
+            tetromino.move(  1 );
+        } else if ( e.keyCode == 38 ) {
+            speed = softDropSpeed;
+        } else if ( e.keyCode == 40 ) { // Down
+            for ( let i = 0; i < cellsDim.h / speed; i++ ) {
+                if ( tetromino ) {
+                    tetromino.update(  );
+                } else {
+                    break;
+                }
+            }
+        } else if ( e.key == "a" ) {
+            tetromino.rotate( -1 );
+        } else if ( e.key == "d" ) {
+            tetromino.rotate(  1 );
+        } else if ( e.key == "s" ) {
+            storePiece(  );
+        } else if ( e.key == " " ) {
+            pause(  );
+        }
+    }
+}
+document.addEventListener( "keydown", key );
+
+function keyup( e ) {
+    if ( e.keyCode = 38 ) {
+        speed = defaultSpeed;
+    }
+}
+document.addEventListener( "keyup", keyup );
+
+function resizeCanvas(  ) {
+	const width = Math.min( window.innerWidth, window.innerHeight * aspectRatio );
+	cnv.style.width = "" + width + "px";
+	cnv.style.height = "" + width * aspectRatio**-1 + "px";
+}
+window.onresize = resizeCanvas;
+resizeCanvas(  );
+
+main(  );
+		</script>
+	</body>
+</html>

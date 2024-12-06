@@ -1,0 +1,72 @@
+<!DOCTYPE HTML>
+<html>
+    <head>
+        <style>
+body {
+	overflow: hidden;
+}
+
+canvas#main {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	aspect-ratio: 4/3;
+	image-rendering: pixelated;
+	border: 1px solid black;
+    z-index: -1;
+}
+
+p#debug {
+    position: absolute;
+    top: 0;
+    left: 0;
+    color: black;
+    z-index: 2;
+}
+        </style>
+    </head>
+    <body>
+        <main>
+            <canvas id="main"></canvas>
+            <p id="debug"></p>
+        </main>
+        <script id="main">
+const cnv = document.querySelector( "canvas#main" );
+const ctx = cnv.getContext( "2d" );
+const debug = document.querySelector( "p#debug" );
+
+const resolution = { width : 1920, height : 1080 };
+const aspectRatio = 16 / 9;
+
+const board = {
+    x : 260, y : 40,
+    w : 1400, h : 1000
+};
+
+
+function main(  ) {
+    cnv.width = resolution.width;
+    cnv.height = resolution.height;
+
+    step(  );
+    setInterval( step, 10 );
+}
+
+function step(  ) {
+
+}
+
+
+function resizeCanvas(  ) {
+	const width = Math.min( window.innerWidth, window.innerHeight * aspectRatio );
+	cnv.style.width = "" + width + "px";
+	cnv.style.height = "" + width * aspectRatio**-1 + "px";
+}
+window.onresize = resizeCanvas;
+resizeCanvas(  );
+
+main(  );
+        </script>
+    </body>
+</html>

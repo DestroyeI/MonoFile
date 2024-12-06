@@ -1,0 +1,254 @@
+<!DOCTYPE HTML>
+<html>
+	<head>
+		<style>
+body {
+	overflow: hidden;
+}
+
+canvas#main {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	aspect-ratio: 4/3;
+	image-rendering: pixelated;
+	border: 1px solid black;
+    z-index: -1;
+}
+
+p#debug {
+    position: absolute;
+    top: 0;
+    left: 0;
+    color: black;
+    z-index: 2;
+}
+		</style>
+	</head>
+	
+	<body>
+		<main>
+			<p id="debug"></p>
+			<canvas id="main">
+		</main>
+		<script id="main">
+const cnv = document.querySelector( "canvas#main" );
+const ctx = cnv.getContext( "2d" );
+const debug = document.querySelector( "p#debug" );
+
+const resolution = { width : 1920, height : 1080 };
+const aspectRatio = 16 / 9;
+
+const board = {
+    x : 260, y : 40,
+    w : 1400, h : 1000
+};
+
+let paddleSpeed = 10;
+const paddles = [
+    board.h / 2, board.h / 2
+];
+const paddle = {
+    "x" : 50,
+    "w" : 30,
+    "h" : 300
+};
+
+const keys = [  ];
+
+const scores = [
+    0, 0
+];
+const scoreSize = 100;
+const scoreMargin = [
+    40, 40
+];
+
+const startTime = 100;
+let startTimer = startTime;
+
+let ballSpeed = 5;
+const ball = {
+    "x" : board.w / 2,
+    "y" : board.h / 2,
+    "r" : 20,
+    "dx" : 0,
+    "dy" : 0
+};
+
+
+function main(  ) {
+    cnv.width = resolution.width;
+    cnv.height = resolution.height;
+
+    
+    ctx.fillStyle = "rgb(100 100 100)";
+    ctx.fillRect( 0, 0, resolution.width, resolution.height );
+
+    ctx.lineWidth = 10 + ball.r * 4;
+    ctx.strokeStyle = "rgb(100 100 100)";
+    ctx.strokeRect( board.x - 5 - ball.r * 2, board.y - 5 - ball.r * 2, board.w + 10 + ball.r * 4, board.h + 10 + ball.r * 4 );
+
+    ctx.fillStyle = "rgb(0 0 0)";
+    ctx.fillRect( board.x, board.y, board.w, board.h );
+
+
+    step(  );
+    setInterval( step, 10 );
+}
+
+function step(  ) {
+    if ( startTimer > 0 ) {
+        startTimer -= 1;
+
+        if ( startTimer == 0 ) {
+            const vec = randomVector2D( ballSpeed, [ [ -Math.PI / 4, -Math.PI / 8 ], [ Math.PI / 8, Math.PI / 4 ], [ Math.PI * ( 3 / 4 ), Math.PI * ( 7 / 8 ) ], [ Math.PI * ( 9 / 8 ), Math.PI * ( 5 / 4 ) ] ] );
+
+            ball.dx = vec.x;
+            ball.dy = vec.y;
+        }
+    } else {
+        ball.x += ball.dx;
+        ball.y += ball.dy;
+    }
+
+    if ( ball.y <= ball.r ) {
+        ball.y = Math.max( ball.y, ball.r );
+        if ( ball.dy < 0 ) { ball.dy *= -1; }
+    } else if ( ball.y >= board.h - ball.r ) {
+        ball.y = Math.min( ball.y, board.h - ball.r );
+        if ( ball.dy > 0 ) { ball.dy *= -1; }
+    }
+
+    if ( ball.x <= paddle.x + paddle.w + ball.r && ball.x >= paddle.x ) {
+        if ( inRange( ball.y, paddles[ 0 ] - paddle.h / 2, paddles[ 0 ] + paddle.h / 2 ) ) {
+            ball.x = Math.max( ball.x, paddle.x + paddle.w + ball.r );
+            if ( ball.dx < 0 ) { ball.dx *= -1; }
+        } else if ( inRange( ball.x, paddle.x, paddle.x + paddle.w ) ) {
+            if ( ball.y >= paddles[ 0 ] - paddle.h / 2 - ball.r && ball.y < paddles[ 0 ] ) {
+                ball.y = Math.min( ball.y, paddles[ 0 ] - paddle.h / 2 - ball.r );
+                if ( ball.dy > 0 ) { ball.dy *= -1; }
+            } else if ( ball.y > paddles[ 0 ] && ball.y <= paddles[ 0 ] + paddle.h / 2 + ball.r ) {
+                ball.y = Math.max( ball.y, paddles[ 0 ] + paddle.h / 2 + ball.r );
+                if ( ball.dy < 0 ) { ball.dy *= -1; }
+            }
+        }
+    } else if ( ball.x >= board.w - ( paddle.x + paddle.w + ball.r ) && ball.x <= board.w - paddle.x ) {
+        if ( inRange( ball.y, paddles[ 1 ] - paddle.h / 2, paddles[ 1 ] + paddle.h / 2 ) ) {
+            ball.x = Math.min( ball.x, board.w - ( paddle.x + paddle.w + ball.r ) );
+            if ( ball.dx > 0 ) { ball.dx *= -1; }
+        } else if ( inRange( ball.x, board.w - paddle.x - paddle.w, board.w - paddle.x ) ) {
+            if ( ball.y >= paddles[ 1 ] - paddle.h / 2 - ball.r && ball.y < paddles[ 1 ] ) {
+                ball.y = Math.min( ball.y, paddles[ 1 ] - paddle.h / 2 - ball.r );
+                if ( ball.dy > 0 ) { ball.dy *= -1; }
+            } else if ( ball.y > paddles[ 1 ] && ball.y <= paddles[ 1 ] + paddle.h / 2 + ball.r ) {
+                ball.y = Math.max( ball.y, paddles[ 1 ] + paddle.h / 2 + ball.r );
+                if ( ball.dy < 0 ) { ball.dy *= -1; }
+            }
+        }
+    }
+
+    if ( ball.x >= board.w + ball.r || ball.x <= -ball.r ) {
+        resetBall( ball.x < board.w / 2 ? 0 : 1 );
+    }
+
+
+    if ( keys.includes( "w" ) ) {
+        paddles[ 0 ] -= paddleSpeed;
+        paddles[ 0 ] = Math.max( paddles[ 0 ], paddle.h / 2 );
+    }
+    if ( keys.includes( "s" ) ) {
+        paddles[ 0 ] += paddleSpeed;
+        paddles[ 0 ] = Math.min( paddles[ 0 ], board.h - paddle.h / 2 );
+    }
+    if ( keys.includes( "ArrowUp" ) ) {
+        paddles[ 1 ] -= paddleSpeed;
+        paddles[ 1 ] = Math.max( paddles[ 1 ], paddle.h / 2 );
+    }
+    if ( keys.includes( "ArrowDown" ) ) {
+        paddles[ 1 ] += paddleSpeed;
+        paddles[ 1 ] = Math.min( paddles[ 1 ], board.h - paddle.h / 2 );
+    }
+
+
+    paddleSpeed *= 0.9999;
+    ballSpeed *= 1.001;
+
+
+    ctx.fillStyle = "rgb(0 0 0)";
+    ctx.fillRect( board.x, board.y, board.w, board.h );
+
+
+    ctx.fillStyle = "rgb(255 255 255)";
+    ctx.strokeStyle = "rgb(255 255 255)";
+    ctx.lineWidth = 10;
+    ctx.setLineDash( [ 50, 30 ] );
+    ctx.beginPath(  );
+    ctx.moveTo( board.x + board.w / 2, board.y );
+    ctx.lineTo( board.x + board.w / 2, board.y + board.h );
+    ctx.stroke(  );
+
+    ctx.setLineDash( [  ] );
+    ctx.beginPath(  );
+    ctx.arc( board.x + ball.x, board.y + ball.y, ball.r, 0, Math.PI * 2 );
+    ctx.fill(  );
+
+    ctx.font = `${ scoreSize }px system-ui`;
+    ctx.textAlign = "right";
+    ctx.fillText( scores[ 0 ], board.x + board.w / 2 - scoreMargin[ 0 ], board.y + scoreMargin[ 1 ] + scoreSize / 2 );
+    ctx.textAlign = "left";
+    ctx.fillText( scores[ 1 ], board.x + board.w / 2 + scoreMargin[ 0 ], board.y + scoreMargin[ 1 ] + scoreSize / 2 );
+
+    ctx.fillRect( board.x + paddle.x, board.y + paddles[ 0 ] - paddle.h / 2, paddle.w, paddle.h );
+    ctx.fillRect( board.x + board.w - paddle.x - paddle.w, board.y + paddles[ 1 ] - paddle.h / 2, paddle.w, paddle.h );
+
+
+    ctx.lineWidth = 10 + ball.r * 4;
+    ctx.strokeStyle = "rgb(100 100 100)";
+    ctx.strokeRect( board.x - 5 - ball.r * 2, board.y - 5 - ball.r * 2, board.w + 10 + ball.r * 4, board.h + 10 + ball.r * 4 );
+}
+
+function inRange( v, l, h ) {
+    return v >= l && v <= h;
+}
+
+function randomVector2D( mag, ranges=[ 0, Math.PI * 2 ] ) {
+    const a = [ ...ranges ].map( r => { return Math.random(  ) * ( r[ 1 ] - r[ 0 ] ) + r[ 0 ]; } )[ Math.floor( Math.random(  ) * ranges.length ) ];
+    const x = Math.cos( a ) * mag;
+    const y = Math.sin( a ) * mag;
+
+    return { x, y };
+}
+
+function resetBall( side ) {
+    scores[ 1 - side ] += 1;
+
+    startTimer = startTime;
+    ball.x = board.w / 2;
+    ball.y = board.h / 2;
+
+    paddleSpeed = 10;
+    ballSpeed = 5;
+}
+
+
+document.addEventListener( "keydown", e => {
+    !keys.includes( e.key ) && keys.push( e.key );
+} );
+document.addEventListener( "keyup", e => {
+    keys.splice( keys.indexOf( e.key ), 1 );
+} );
+
+function resizeCanvas(  ) {
+	const width = Math.min( window.innerWidth, window.innerHeight * aspectRatio );
+	cnv.style.width = "" + width + "px";
+	cnv.style.height = "" + width * aspectRatio**-1 + "px";
+}
+window.onresize = resizeCanvas;
+resizeCanvas(  );
+
+main(  );
+		</script>
+	</body>
+</html>
